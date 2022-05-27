@@ -3,7 +3,7 @@
  * @return {Promise}
  * @api public
  */
-
+ var slice = Array.prototype.slice;
  export function autoCompleteGenFunc(gen) {
     var ctx = this;
     var args = slice.call(arguments, 1);
@@ -63,4 +63,141 @@
           + 'but the following object was passed: "' + String(ret.value) + '"'));
       }
     });
+  }
+  autoCompleteGenFunc.wrap = function (fn) {
+    createPromise.__generatorFunction__ = fn;
+    return createPromise;
+    function createPromise() {
+      return autoCompleteGenFunc.call(this, fn.apply(this, arguments));
+    }
+  };
+
+/**
+ *
+ * @param {Mixed} obj
+ * @return {Promise}
+ * @api private
+ */
+
+ function toPromise(obj) {
+    if (!obj) return obj;
+    if (isPromise(obj)) return obj;
+    if (isGeneratorFunction(obj) || isGenerator(obj)) return co.call(this, obj);
+    if ('function' == typeof obj) return thunkToPromise.call(this, obj);
+    if (Array.isArray(obj)) return arrayToPromise.call(this, obj);
+    if (isObject(obj)) return objectToPromise.call(this, obj);
+    return obj;
+  }
+  
+  /**
+   *
+   * @param {Function}
+   * @return {Promise}
+   * @api private
+   */
+  
+  function thunkToPromise(fn) {
+    var ctx = this;
+    return new Promise(function (resolve, reject) {
+      fn.call(ctx, function (err, res) {
+        if (err) return reject(err);
+        if (arguments.length > 2) res = slice.call(arguments, 1);
+        resolve(res);
+      });
+    });
+  }
+  
+  /**
+   * Convert an array of "yieldables" to a promise.
+   * Uses `Promise.all()` internally.
+   *
+   * @param {Array} obj
+   * @return {Promise}
+   * @api private
+   */
+  
+  function arrayToPromise(obj) {
+    return Promise.all(obj.map(toPromise, this));
+  }
+  
+  /**
+   * Convert an object of "yieldables" to a promise.
+   * Uses `Promise.all()` internally.
+   *
+   * @param {Object} obj
+   * @return {Promise}
+   * @api private
+   */
+  
+  function objectToPromise(obj){
+    var results = new obj.constructor();
+    var keys = Object.keys(obj);
+    var promises = [];
+    for (var i = 0; i < keys.length; i++) {
+      var key = keys[i];
+      var promise = toPromise.call(this, obj[key]);
+      if (promise && isPromise(promise)) defer(promise, key);
+      else results[key] = obj[key];
+    }
+    return Promise.all(promises).then(function () {
+      return results;
+    });
+  
+    function defer(promise, key) {
+      results[key] = undefined;
+      promises.push(promise.then(function (res) {
+        results[key] = res;
+      }));
+    }
+  }
+  
+  /**
+   * Check if `obj` is a promise.
+   *
+   * @param {Object} obj
+   * @return {Boolean}
+   * @api private
+   */
+  
+  function isPromise(obj) {
+    return 'function' == typeof obj.then;
+  }
+  
+  /**
+   * Check if `obj` is a generator.
+   *
+   * @param {Mixed} obj
+   * @return {Boolean}
+   * @api private
+   */
+  
+  function isGenerator(obj) {
+    return 'function' == typeof obj.next && 'function' == typeof obj.throw;
+  }
+  
+  /**
+   * Check if `obj` is a generator function.
+   *
+   * @param {Mixed} obj
+   * @return {Boolean}
+   * @api private
+   */
+   
+  function isGeneratorFunction(obj) {
+    var constructor = obj.constructor;
+    if (!constructor) return false;
+    if ('GeneratorFunction' === constructor.name || 'GeneratorFunction' === constructor.displayName) return true;
+    return isGenerator(constructor.prototype);
+  }
+  
+  /**
+   * Check for plain object.
+   *
+   * @param {Mixed} val
+   * @return {Boolean}
+   * @api private
+   */
+  
+  function isObject(val) {
+    return Object == val.constructor;
   }
